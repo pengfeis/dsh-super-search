@@ -43,14 +43,26 @@ appears at the sidebar foot and on `⌘⇧K`. The client half is served at its o
 revisioned URL, so a page that was already open when the bundle was enabled
 picks the palette up on the next load.
 
+From this repository, either paste the URL in that dialog or use a package spec:
+
+```bash
+# agent tool
+plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.0.0
+
+# CLI
+dsh plugin --profile <profile> add git+https://github.com/pengfeis/dsh-super-search.git
+```
+
+The `v1.0.0` release also carries `dsh-super-search-1.0.0.tgz` and its sha256 for
+offline installs.
+
 ## Distribute
 
-The source repository's `dist/` folder holds a packed, installable bundle
-(`dsh-super-search-<version>.tgz` plus its sha256) and its `INSTALL.md`. Other
-people install the package from a local tarball, an HTTPS tarball URL, a pinned
-Git repository, or an npm package name; `dist/INSTALL.md` in the repository
-lists the exact specs, the forms the Web **Add plugin** dialog accepts, and the
-repack command.
+The `dist/` folder holds the packed bundle (`dsh-super-search-<version>.tgz` plus
+its sha256), [INSTALL.md](dist/INSTALL.md) with every install form the Web dialog
+and the package manager accept, `publish.sh` for cutting a release, and the
+draft entry for the [awesome-deepseek-harness](https://github.com/0xsline/awesome-deepseek-harness)
+list. `dist/*.tgz` is git-ignored: release assets carry the artifact.
 
 ## How it works
 
