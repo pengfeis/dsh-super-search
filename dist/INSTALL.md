@@ -4,8 +4,8 @@
 
 | 文件 | 说明 |
 |---|---|
-| `dsh-super-search-1.0.0.tgz` | 可安装的 dsh bundle 包（8 个文件，13.8 KB） |
-| `dsh-super-search-1.0.0.tgz.sha256` | 校验和 |
+| `dsh-super-search-<version>.tgz` | 可安装的 dsh bundle 包（8 个文件，约 14 KB） |
+| `dsh-super-search-<version>.tgz.sha256` | 校验和 |
 
 ## 兼容性
 
@@ -24,16 +24,16 @@ plugin_manager install_bundle  target=<包规格>  enabled=true
 
 | 形态 | 例子 |
 |---|---|
-| 本地 tarball 绝对路径 | `/Users/me/dist/dsh-super-search-1.0.0.tgz` |
-| HTTPS tarball 地址 | `https://example.com/dsh-super-search-1.0.0.tgz` |
+| 本地 tarball 绝对路径 | `/Users/me/dist/dsh-super-search-<version>.tgz` |
+| HTTPS tarball 地址 | `https://example.com/dsh-super-search-<version>.tgz` |
 | Git 仓库 | `git+https://github.com/<you>/<repo>.git#path:dsh-super-search` |
-| npm 包名（已发布时） | `dsh-super-search` 或 `dsh-super-search@1.0.0` |
+| npm 包名（已发布时） | `dsh-super-search` 或 `dsh-super-search@<version>` |
 
 ## 安装方式二：网页「Plugins → Add plugin」
 
 该对话框接受：npm 包名、GitHub 仓库地址、本地目录路径。
 
-- 想用目录：`tar -xzf dsh-super-search-1.0.0.tgz` 得到 `package/` 目录，把它的绝对路径填进去。
+- 想用目录：`tar -xzf dsh-super-search-<version>.tgz` 得到 `package/` 目录，把它的绝对路径填进去。
 - 本地目录会以 `link:` 依赖安装（文件留在原处，删掉目录插件就失效）；要长期使用，优先用 tarball、Git 或 npm。
 
 ## 安装方式三：dsh CLI
@@ -67,7 +67,7 @@ curl -si "http://127.0.0.1:<port>/api/super-search?q=test" | head -3
 
 ## 发布前清单
 
-- [ ] 确定许可证：本包当前**没有**声明 `license`，发布前请自行补充（例如 MIT）并注意随之附带的授权条款。
+- [x] 许可证：**MIT**（`LICENSE` 文件 + `package.json` 的 `license` 字段），tarball 与仓库都带。
 - [ ] 版本号：改 `package.json` 的 `version` 后重新打包（见下）。
 - [ ] 可选：`repository`、`author`、`keywords` 字段。
 
@@ -77,7 +77,7 @@ curl -si "http://127.0.0.1:<port>/api/super-search?q=test" | head -3
 cd dsh-super-search
 rm -f dist/*.tgz dist/*.sha256
 npm pack --pack-destination dist
-cd dist && shasum -a 256 dsh-super-search-*.tgz > dsh-super-search-1.0.0.tgz.sha256
+cd dist && for f in dsh-super-search-*.tgz; do shasum -a 256 "$f" > "$f.sha256"; done
 ```
 
 `package.json` 的 `files` 决定打进包里的文件：`index.js`、`client.js`、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、`README.md`。

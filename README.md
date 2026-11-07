@@ -47,13 +47,13 @@ From this repository, either paste the URL in that dialog or use a package spec:
 
 ```bash
 # agent tool
-plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.0.0
+plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.0.1
 
 # CLI
 dsh plugin --profile <profile> add git+https://github.com/pengfeis/dsh-super-search.git
 ```
 
-The `v1.0.0` release also carries `dsh-super-search-1.0.0.tgz` and its sha256 for
+The `v1.0.1` release also carries `dsh-super-search-1.0.1.tgz` and its sha256 for
 offline installs.
 
 ## Distribute
@@ -117,3 +117,7 @@ Set it on this bundle's row in the profile patch:
   config:
     maxResults: 100
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
