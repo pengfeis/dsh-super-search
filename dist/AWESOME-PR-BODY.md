@@ -1,4 +1,4 @@
-Adds [dsh-super-search](https://github.com/OWNER/dsh-super-search) to **Context & Search**.
+Adds [dsh-super-search](https://github.com/pengfeis/dsh-super-search) to **Context & Search**.
 
 Global search over DSH conversations that indexes only what a person typed and
 what the assistant answered — reasoning blocks, tool calls, and tool output never
@@ -14,5 +14,5 @@ enter the index — exposed as a ⌘⇧K palette and a `super_search` tool.
 - The palette route is admitted by `ctx.connection.admit()`, so it carries the
   same browser authentication as the rest of the application surface.
 
-Install: `plugin_manager install_bundle target=git+https://github.com/OWNER/dsh-super-search.git#v1.0.0`
-(replace OWNER with the account that hosts it).
+Install: `plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.0.0`
+(replace pengfeis with the account that hosts it).

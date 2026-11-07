@@ -36,10 +36,10 @@ are combined with AND.
 
 ```bash
 # agent
-plugin_manager install_bundle target=git+https://github.com/<owner>/dsh-super-search.git#v1.0.0
+plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.0.0
 
 # CLI
-dsh plugin --profile <profile> add git+https://github.com/<owner>/dsh-super-search.git
+dsh plugin --profile <profile> add git+https://github.com/pengfeis/dsh-super-search.git
 ```
 
 Or download the attached `dsh-super-search-1.0.0.tgz` and install that path.

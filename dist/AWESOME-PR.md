@@ -12,27 +12,27 @@
 
 ## 改动内容
 
-两个文件都追加到 `## Context & Search` 小节末尾（把 `<owner>` 换成实际 GitHub 账号）：
+两个文件都追加到 `## Context & Search` 小节末尾（把 `pengfeis` 换成实际 GitHub 账号）：
 
 ### README.md（英文）
 
 ```markdown
-- [<owner>/dsh-super-search](https://github.com/<owner>/dsh-super-search) - Global search across DSH conversations that indexes only user questions and assistant answers (reasoning, tool calls, and tool output stay out), with a ⌘⇧K search palette and a `super_search` tool.
+- [pengfeis/dsh-super-search](https://github.com/pengfeis/dsh-super-search) - Global search across DSH conversations that indexes only user questions and assistant answers (reasoning, tool calls, and tool output stay out), with a ⌘⇧K search palette and a `super_search` tool.
 ```
 
 ### README.zh-CN.md（中文）
 
 ```markdown
-- [<owner>/dsh-super-search](https://github.com/<owner>/dsh-super-search) - DSH 会话全局搜索：只索引用户提问与助手回答（不含思考过程、工具调用与工具输出），提供 ⌘⇧K 搜索面板与 `super_search` 工具。
+- [pengfeis/dsh-super-search](https://github.com/pengfeis/dsh-super-search) - DSH 会话全局搜索：只索引用户提问与助手回答（不含思考过程、工具调用与工具输出），提供 ⌘⇧K 搜索面板与 `super_search` 工具。
 ```
 
 ## PR
 
-- 标题：`docs: add <owner>/dsh-super-search`
+- 标题：`docs: add pengfeis/dsh-super-search`
 - 正文：
 
 ```markdown
-Adds [dsh-super-search](https://github.com/<owner>/dsh-super-search) to **Context & Search**.
+Adds [dsh-super-search](https://github.com/pengfeis/dsh-super-search) to **Context & Search**.
 
 Global search over DSH conversations that indexes only what a person typed and
 what the assistant answered — reasoning blocks, tool calls, and tool output never
@@ -48,9 +48,9 @@ gh repo fork 0xsline/awesome-deepseek-harness --clone=true --remote=false
 cd awesome-deepseek-harness
 git checkout -b docs/add-dsh-super-search
 # 编辑 README.md 与 README.zh-CN.md（见上）
-git commit -am "docs: add <owner>/dsh-super-search"
+git commit -am "docs: add pengfeis/dsh-super-search"
 git push -u origin docs/add-dsh-super-search
 gh pr create --repo 0xsline/awesome-deepseek-harness \
-  --title "docs: add <owner>/dsh-super-search" \
+  --title "docs: add pengfeis/dsh-super-search" \
   --body-file ../dist/AWESOME-PR-BODY.md
 ```
