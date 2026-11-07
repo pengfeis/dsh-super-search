@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Super search",
+    "description": "Search every conversation in this Harness by what people asked and what the assistant answered. Reasoning, tool calls, and tool output are never searched."
+  }
+}
