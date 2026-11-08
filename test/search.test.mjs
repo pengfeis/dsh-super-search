@@ -151,6 +151,25 @@ check(
   'the loose fallback matches a text holding one of two terms'
 )
 
+// --- a Chinese run needs more than one adjacent pair ----------------------
+
+check(
+  matchTokens(tokensOf('搜索插件'), '这是一个搜索会话插件的说明'.toLowerCase(), true).matched,
+  'a four-character run matches through two of its three pairs'
+)
+check(
+  !matchTokens(tokensOf('量子纠缠测量退相干'), '量子计算与测量方法'.toLowerCase(), true).matched,
+  'a long run does not match a text that shares only one word with it'
+)
+check(
+  matchTokens(tokensOf('量子纠缠测量退相干'), '量子纠缠退相干与测量'.toLowerCase(), true).matched,
+  'a long run matches a text that holds most of its pairs'
+)
+check(
+  !matchTokens(tokensOf('搜索插件'), '只有搜索两个字'.toLowerCase(), true).matched,
+  'a run needs more than one adjacent pair'
+)
+
 // --- titles ride in the log -----------------------------------------------
 
 const titleEvents = []

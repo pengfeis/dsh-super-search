@@ -252,7 +252,10 @@ function matchToken(token, haystack) {
     pairs += 1
     if (found < 0 || at < found) found = at
   }
-  if (found < 0) return { matched: false, score: 0, index: -1, occurrences: 0 }
+  // A long Chinese run must show more than one adjacent pair, or the text
+  // merely shares a word with the query. Half of the pairs is the bar.
+  const needed = Math.max(1, Math.ceil(token.pairs.length / 2))
+  if (pairs < needed) return { matched: false, score: 0, index: -1, occurrences: 0 }
   return { matched: true, score: pairs * BIGRAM_SCORE, index: found, occurrences: pairs }
 }
 
@@ -277,25 +280,29 @@ function matchTokens(tokens, haystack, requireAll) {
   let occurrences = 0
   let matchedTokens = 0
   let characters = 0
+  let longest = 0
+  const matchedTexts = []
   for (const token of tokens) {
     const outcome = matchToken(token, haystack)
     if (!outcome.matched) {
-      if (requireAll) return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens: 0, span: 0, characters: 0 }
+      if (requireAll) return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens: 0, span: 0, characters: 0, longest: 0, matchedTexts }
       continue
     }
     matchedTokens += 1
+    matchedTexts.push(token.text)
     score += outcome.score
     occurrences += outcome.occurrences
     characters += token.text.length
+    if (token.text.length > longest) longest = token.text.length
     if (index < 0 || outcome.index < index) index = outcome.index
     if (outcome.index > last) last = outcome.index
   }
   const span = index < 0 || last < 0 ? 0 : last - index
   if (requireAll && matchedTokens !== tokens.length) {
-    return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens, span, characters }
+    return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens, span, characters, longest, matchedTexts }
   }
-  if (matchedTokens === 0) return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens: 0, span: 0, characters: 0 }
-  return { matched: true, score, index, occurrences, matchedTokens, span, characters }
+  if (matchedTokens === 0) return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens: 0, span: 0, characters: 0, longest: 0, matchedTexts }
+  return { matched: true, score, index, occurrences, matchedTokens, span, characters, longest, matchedTexts }
 }
 
 /**
@@ -310,9 +317,9 @@ function isWorthwhilePartialMatch(tokens, outcome) {
   if (outcome.matchedTokens < 2) return false
   if (outcome.matchedTokens * 2 < tokens.length) return false
   const queryCharacters = tokens.reduce((total, token) => total + token.text.length, 0)
-  if (outcome.characters * 2 < queryCharacters) return false
+  if (outcome.characters * 10 < queryCharacters * 6) return false
   if (outcome.span > PARTIAL_MATCH_WINDOW) return false
-  return tokens.some((token) => token.text.length >= 3 && outcome.matchedTokens > 0)
+  return outcome.longest >= 3
 }
 
 /**
@@ -614,8 +621,8 @@ class SuperSearchIndex {
           })
         }
       }
+      loose = hits.length > 0
     }
-    loose = hits.length > 0
     hits.sort((left, right) => right.score - left.score || right.time - left.time)
     const truncated = hits.length > limit
     const selected = hits.slice(0, limit)
