@@ -1,18 +1,20 @@
 Adds [dsh-super-search](https://github.com/pengfeis/dsh-super-search) to **Context & Search**.
 
-Global search over DSH conversations that indexes only what a person typed and
-what the assistant answered — reasoning blocks, tool calls, and tool output never
-enter the index — exposed as a ⌘⇧K palette and a `super_search` tool.
+Global search over DSH conversations that spans every session and every
+workspace, and indexes only what a person typed, what the assistant answered,
+and the conversation title — reasoning blocks, tool calls, and tool output never
+enter the index.
 
-- Only `user/message` (a human turn) and `assistant/message` text blocks are
-  indexed; Harness-injected user-role notices (runtime context, timestamps, skill
-  catalogs, background jobs) are excluded as well.
-- Substring matching, so Chinese phrases match inside a sentence and English
-  words match inside longer words; several words combine with AND.
-- Derived index over the session log: live sessions extend incrementally, stored
-  sessions re-read only when their persistence revision changes.
-- The palette route is admitted by `ctx.connection.admit()`, so it carries the
+- The palette (`⌘⇧K`) searches the whole corpus at once, with a scope bar to
+  narrow it to one working directory; `super_search` gives the agent the same
+  search with an optional `workspace` argument.
+- Chinese matches the way people write it: a run of characters matches as one
+  substring or through its adjacent character pairs, so `搜索插件` finds
+  `搜索会话插件` without matching a text that merely holds the same characters
+  apart. English words match inside longer words.
+- The index is derived from the session log: live sessions extend incrementally,
+  stored sessions are re-read only when their persistence revision changed.
+- The palette routes are admitted by `ctx.connection.admit()`, so they carry the
   same browser authentication as the rest of the application surface.
 
-Install: `plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.0.0`
-(replace pengfeis with the account that hosts it).
+Install: `plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.1.0`
