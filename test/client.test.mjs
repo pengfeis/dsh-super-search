@@ -168,6 +168,30 @@ check(textsOf(palette).some((text) => text.includes('hint')), 'the palette shows
 const close = buttons.find((button) => button.props['aria-label'] === 'open')
 check(close !== undefined, 'the card carries a close control')
 
+// --- the scope bar must not be squashed by the result list ---------------
+
+/** Find every element whose style carries a given property. */
+function stylesWith(node, property, into = []) {
+  if (node === null || node === undefined) return into
+  if (Array.isArray(node)) {
+    for (const child of node) stylesWith(child, property, into)
+    return into
+  }
+  if (typeof node !== 'object') return into
+  if (node.props?.style?.[property] !== undefined) into.push(node.props.style)
+  if (node.children !== undefined) stylesWith(node.children, property, into)
+  return into
+}
+
+const shrinkable = stylesWith(palette, 'flexShrink')
+check(shrinkable.length >= 3, 'the header, meta row, scope bar, and footer keep their height')
+check(shrinkable.every((style) => style.flexShrink === 0), 'nothing but the result list may shrink')
+
+const growing = stylesWith(palette, 'flex')
+check(growing.some((style) => style.flex === '1 1 auto'), 'the result list takes the remaining space')
+check(stylesWith(palette, 'minHeight').some((style) => style.minHeight === 0), 'the result list may shrink below its content')
+check(stylesWith(palette, 'overflowX').some((style) => style.overflowX === 'auto'), 'the scope bar scrolls sideways instead of wrapping')
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${String(failures)} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
 

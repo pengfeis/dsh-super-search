@@ -228,7 +228,7 @@ window.__ModuleLoader__.load({
     /** The card and its rows share these measurements. */
     const CARD = {
       width: 'min(760px, 92vw)',
-      maxHeight: 'min(560px, 70vh)',
+      maxHeight: 'min(620px, 78vh)',
       radius: 14
     }
 
@@ -374,6 +374,7 @@ window.__ModuleLoader__.load({
         gap: '10px',
         alignItems: 'center',
         flexWrap: 'wrap',
+        flexShrink: 0,
         padding: '0 16px 10px',
         fontSize: 12,
         lineHeight: '16px',
@@ -381,6 +382,8 @@ window.__ModuleLoader__.load({
       }
 
       const listStyle = {
+        flex: '1 1 auto',
+        minHeight: 0,
         overflowY: 'auto',
         padding: '0 8px 8px',
         display: 'flex',
@@ -393,7 +396,9 @@ window.__ModuleLoader__.load({
         gap: '6px',
         alignItems: 'center',
         flexWrap: 'nowrap',
+        flexShrink: 0,
         overflowX: 'auto',
+        overflowY: 'hidden',
         padding: '0 16px 10px'
       }
 
@@ -441,7 +446,7 @@ window.__ModuleLoader__.load({
         { style: cardStyle, role: 'dialog', 'aria-modal': 'true', 'aria-label': t('title'), onKeyDown },
         h(
           'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--dsw-alias-border-l1)' } },
+          { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, borderBottom: '1px solid var(--dsw-alias-border-l1)' } },
           h('input', {
             ref: inputRef,
             type: 'search',
@@ -574,7 +579,7 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
-          { style: { padding: '8px 16px 12px', fontSize: 11, color: 'var(--dsw-alias-label-secondary)', borderTop: '1px solid var(--dsw-alias-border-l1)' } },
+          { style: { flexShrink: 0, padding: '8px 16px 12px', fontSize: 11, color: 'var(--dsw-alias-label-secondary)', borderTop: '1px solid var(--dsw-alias-border-l1)' } },
           t('hint')
         )
       )
