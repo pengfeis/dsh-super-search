@@ -17,4 +17,4 @@ enter the index.
 - The palette routes are admitted by `ctx.connection.admit()`, so they carry the
   same browser authentication as the rest of the application surface.
 
-Install: `plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.1.0`
+Install: `plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.1.1`
