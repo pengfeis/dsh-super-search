@@ -2,9 +2,10 @@
  * dsh-super-search — global search over the conversations this Harness keeps.
  *
  * The searchable corpus is deliberately narrow: only the text a human typed
- * (user questions) and the text the model answered with (assistant answers).
- * Reasoning ("thinking") blocks, tool calls, and tool output never enter the
- * index, so a hit is always something a person actually wrote or read.
+ * (user questions), the text the model answered with (assistant answers), and
+ * the title of the conversation itself. Reasoning ("thinking") blocks, tool
+ * calls, and tool output never enter the index, so a hit is always something a
+ * person actually wrote, read, or named.
  *
  * The index is a derived cache over the session log — the log stays the single
  * source of truth. Cold sessions are re-read only when their persistence
@@ -32,6 +33,30 @@ const COLD_READ_CONCURRENCY = 4
 
 /** Path the browser half reads its results from. */
 const SEARCH_PATH = '/api/super-search'
+
+/** Path the browser half reads its workspace list from. */
+const WORKSPACES_PATH = '/api/super-search/workspaces'
+
+/** Score a single word occurrence adds. */
+const WORD_SCORE = 6
+
+/** Score a whole Chinese run found as one substring adds. */
+const RUN_SCORE = 12
+
+/** Score one Chinese character pair found adds. */
+const BIGRAM_SCORE = 4
+
+/** Score a role adds: a question is what people look for first. */
+const ROLE_SCORE = { user: 3, assistant: 1, title: 8 }
+
+/** Score a session whose own title matches the query adds to its hits. */
+const TITLE_BOOST = 10
+
+/** Cap on the occurrences one token contributes, so a repeated word cannot dominate. */
+const OCCURRENCE_CAP = 4
+
+/** How far apart the matched words of a partial match may lie. */
+const PARTIAL_MATCH_WINDOW = 160
 
 /**
  * Extract the searchable text of one message.
@@ -89,35 +114,80 @@ function entryOfEvent(event) {
 }
 
 /**
+ * Extract every searchable entry of one event list, and the session title it carries.
+ *
+ * The title rides in the log as a `session/title` event, so a session's name is
+ * searchable without a second read of its history.
+ *
+ * @param {readonly any[]} events - the session events.
+ * @returns {{entries: Array<{seq: number, role: 'user' | 'assistant', time: number, text: string}>, title: string | undefined}} the entries and the title.
+ */
+function entriesAndTitleOfEvents(events) {
+  const entries = []
+  let title
+  for (const event of events) {
+    if (event.type === 'session/title') {
+      const value = event.data?.title
+      if (typeof value === 'string' && value.trim() !== '') title = value.trim()
+      continue
+    }
+    const entry = entryOfEvent(event)
+    if (entry !== undefined) entries.push(entry)
+  }
+  return { entries, title }
+}
+
+/**
  * Extract every searchable entry of one event list.
  *
  * @param {readonly any[]} events - the session events.
  * @returns {Array<{seq: number, role: 'user' | 'assistant', time: number, text: string}>} the entries.
  */
 function entriesOfEvents(events) {
-  const entries = []
-  for (const event of events) {
-    const entry = entryOfEvent(event)
-    if (entry !== undefined) entries.push(entry)
-  }
-  return entries
+  return entriesAndTitleOfEvents(events).entries
 }
 
+/** Matches one CJK ideograph, kana, or Hangul syllable. */
+const CJK_CHARACTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
+
+/** Matches one letter, digit, or underscore. */
+const WORD_CHARACTER = /[\p{L}\p{N}_]/u
+
 /**
- * Split a query into the terms every hit must contain.
+ * Split a query into the tokens every hit must satisfy.
  *
- * A single term matches inside a word, so Chinese phrases and partial English
- * words are found; several terms are combined with AND.
+ * A word matches inside a longer word. A run of Chinese characters matches as
+ * one substring, or — when the words are not adjacent in the text — through any
+ * adjacent character pair of the run, so "搜索插件" still finds "搜索会话插件"
+ * without matching a text that merely holds the same characters apart.
  *
  * @param {string} query - the raw query.
- * @returns {string[]} the lowercased terms.
+ * @returns {Array<{kind: 'word' | 'cjk', text: string, pairs: string[]}>} the tokens.
  */
-function termsOf(query) {
-  return query
-    .toLowerCase()
-    .split(/\s+/u)
-    .map((term) => term.trim())
-    .filter((term) => term !== '')
+function tokenizeQuery(query) {
+  const tokens = []
+  const text = query.toLowerCase()
+  let index = 0
+  while (index < text.length) {
+    const character = text[index]
+    if (!WORD_CHARACTER.test(character)) {
+      index += 1
+      continue
+    }
+    const cjk = CJK_CHARACTER.test(character)
+    let end = index
+    while (end < text.length && WORD_CHARACTER.test(text[end]) && CJK_CHARACTER.test(text[end]) === cjk) end += 1
+    const run = text.slice(index, end)
+    if (cjk) {
+      const pairs = []
+      for (let at = 0; at + 1 < run.length; at += 1) pairs.push(run.slice(at, at + 2))
+      tokens.push({ kind: 'cjk', text: run, pairs })
+    } else {
+      tokens.push({ kind: 'word', text: run, pairs: [] })
+    }
+    index = end
+  }
+  return tokens
 }
 
 /**
@@ -138,6 +208,114 @@ function snippetAround(text, index, length, radius) {
 }
 
 /**
+ * Count case-insensitive occurrences of a needle inside a haystack.
+ *
+ * @param {string} haystack - the lowercased text.
+ * @param {string} needle - the lowercased query.
+ * @returns {number} the occurrence count.
+ */
+function countOccurrences(haystack, needle) {
+  if (needle === '') return 0
+  let count = 0
+  let index = haystack.indexOf(needle)
+  while (index >= 0) {
+    count += 1
+    index = haystack.indexOf(needle, index + needle.length)
+  }
+  return count
+}
+
+/**
+ * Match one token against one text.
+ *
+ * @param {{kind: 'word' | 'cjk', text: string, pairs: string[]}} token - the query token.
+ * @param {string} haystack - the lowercased text.
+ * @returns {{matched: boolean, score: number, index: number, occurrences: number}} the match outcome.
+ */
+function matchToken(token, haystack) {
+  if (token.kind === 'word') {
+    const index = haystack.indexOf(token.text)
+    if (index < 0) return { matched: false, score: 0, index: -1, occurrences: 0 }
+    const occurrences = countOccurrences(haystack, token.text)
+    return { matched: true, score: Math.min(occurrences, OCCURRENCE_CAP) * WORD_SCORE, index, occurrences }
+  }
+  const index = haystack.indexOf(token.text)
+  if (index >= 0) {
+    const occurrences = countOccurrences(haystack, token.text)
+    return { matched: true, score: Math.min(occurrences, OCCURRENCE_CAP) * RUN_SCORE, index, occurrences }
+  }
+  let found = -1
+  let pairs = 0
+  for (const pair of token.pairs) {
+    const at = haystack.indexOf(pair)
+    if (at < 0) continue
+    pairs += 1
+    if (found < 0 || at < found) found = at
+  }
+  if (found < 0) return { matched: false, score: 0, index: -1, occurrences: 0 }
+  return { matched: true, score: pairs * BIGRAM_SCORE, index: found, occurrences: pairs }
+}
+
+/**
+ * Match a whole token list against one text.
+ *
+ * The strict pass needs every token. The loose pass accepts a text that holds
+ * enough of the query — most of its tokens, most of its characters, and the
+ * matched tokens close together — so a phrase that no message repeats word for
+ * word still finds the messages that talk about it, while a query nothing
+ * resembles finds nothing.
+ *
+ * @param {Array<{kind: 'word' | 'cjk', text: string, pairs: string[]}>} tokens - the query tokens.
+ * @param {string} haystack - the lowercased text.
+ * @param {boolean} requireAll - whether every token must match.
+ * @returns {{matched: boolean, score: number, index: number, occurrences: number, matchedTokens: number, span: number, characters: number}} the match outcome.
+ */
+function matchTokens(tokens, haystack, requireAll) {
+  let score = 0
+  let index = -1
+  let last = -1
+  let occurrences = 0
+  let matchedTokens = 0
+  let characters = 0
+  for (const token of tokens) {
+    const outcome = matchToken(token, haystack)
+    if (!outcome.matched) {
+      if (requireAll) return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens: 0, span: 0, characters: 0 }
+      continue
+    }
+    matchedTokens += 1
+    score += outcome.score
+    occurrences += outcome.occurrences
+    characters += token.text.length
+    if (index < 0 || outcome.index < index) index = outcome.index
+    if (outcome.index > last) last = outcome.index
+  }
+  const span = index < 0 || last < 0 ? 0 : last - index
+  if (requireAll && matchedTokens !== tokens.length) {
+    return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens, span, characters }
+  }
+  if (matchedTokens === 0) return { matched: false, score: 0, index: -1, occurrences: 0, matchedTokens: 0, span: 0, characters: 0 }
+  return { matched: true, score, index, occurrences, matchedTokens, span, characters }
+}
+
+/**
+ * Whether a partial match carries enough of the query to be worth showing.
+ *
+ * @param {{kind: 'word' | 'cjk', text: string, pairs: string[]}}[] tokens - the query tokens.
+ * @param {{matchedTokens: number, span: number, characters: number}} outcome - the partial match outcome.
+ * @returns {boolean} whether the partial match stands.
+ */
+function isWorthwhilePartialMatch(tokens, outcome) {
+  if (tokens.length < 2) return false
+  if (outcome.matchedTokens < 2) return false
+  if (outcome.matchedTokens * 2 < tokens.length) return false
+  const queryCharacters = tokens.reduce((total, token) => total + token.text.length, 0)
+  if (outcome.characters * 2 < queryCharacters) return false
+  if (outcome.span > PARTIAL_MATCH_WINDOW) return false
+  return tokens.some((token) => token.text.length >= 3 && outcome.matchedTokens > 0)
+}
+
+/**
  * The searchable view over every conversation of this Harness.
  */
 class SuperSearchIndex {
@@ -146,10 +324,8 @@ class SuperSearchIndex {
    */
   constructor(ctx) {
     this.ctx = ctx
-    /** @type {Map<string, {version: string, live: boolean, cwd: string | undefined, createdAt: number, lastSeq: number, entries: any[]}>} */
+    /** @type {Map<string, {version: string, live: boolean, cwd: string | undefined, createdAt: number, lastSeq: number, entries: any[], title: string | undefined}>} */
     this.index = new Map()
-    /** @type {Map<string, string | undefined>} */
-    this.titles = new Map()
     this.refreshing = undefined
   }
 
@@ -198,12 +374,12 @@ class SuperSearchIndex {
    * Read one cold session and index its answers.
    *
    * @param {string} id - the session id.
-   * @returns {Promise<any[]>} the entries of that session.
+   * @returns {Promise<{entries: any[], title: string | undefined}>} the entries and the title.
    */
   async entriesOfColdSession(id) {
     const observation = await this.ctx.sessionQuery.observeSession(id, { projectionMode: 'none' })
     try {
-      return entriesOfEvents(observation.events)
+      return entriesAndTitleOfEvents(observation.events)
     } finally {
       observation.dispose()
     }
@@ -251,8 +427,15 @@ class SuperSearchIndex {
       const from = cached !== undefined && cached.live === true ? cached.lastSeq : -1
       const entries = cached !== undefined && cached.live === true ? [...cached.entries] : []
       let lastSeq = from
+      let title = cached?.title
       for (const event of events) {
         if (event.seq <= from) continue
+        if (event.type === 'session/title') {
+          const value = event.data?.title
+          if (typeof value === 'string' && value.trim() !== '') title = value.trim()
+          lastSeq = event.seq
+          continue
+        }
         const entry = entryOfEvent(event)
         if (entry !== undefined) entries.push(entry)
         lastSeq = event.seq
@@ -263,15 +446,13 @@ class SuperSearchIndex {
         cwd: record.cwd,
         createdAt: record.createdAt,
         lastSeq,
-        entries
+        entries,
+        title
       })
     }
     await this.readColdSessions(coldWork)
     for (const id of [...this.index.keys()]) {
-      if (!seen.has(id)) {
-        this.index.delete(id)
-        this.titles.delete(id)
-      }
+      if (!seen.has(id)) this.index.delete(id)
     }
   }
 
@@ -294,14 +475,15 @@ class SuperSearchIndex {
         if (position >= records.length) return
         const record = records[position]
         try {
-          const entries = await this.entriesOfColdSession(record.id)
+          const { entries, title } = await this.entriesOfColdSession(record.id)
           this.index.set(record.id, {
             version: `store:${String(record.revision ?? '')}`,
             live: false,
             cwd: record.cwd,
             createdAt: record.createdAt,
             lastSeq: entries.length === 0 ? -1 : entries[entries.length - 1].seq,
-            entries
+            entries,
+            title
           })
         } catch (error) {
           this.ctx.logger?.warn?.(`dsh-super-search: session "${record.id}" could not be indexed: ${String(error)}`)
@@ -312,68 +494,61 @@ class SuperSearchIndex {
   }
 
   /**
-   * The folded title of one session, read once and then remembered.
+   * Every workspace the corpus holds, with how much it holds.
    *
-   * @param {string} id - the session id.
-   * @returns {Promise<string | undefined>} the title, when the log carries one.
+   * @returns {Array<{cwd: string | undefined, sessions: number, messages: number}>} one row per workspace.
    */
-  async titleOf(id) {
-    if (this.titles.has(id)) return this.titles.get(id)
-    let title
-    try {
-      title = (await this.ctx.sessionQuery.readTitle(id))?.title
-    } catch {
-      title = undefined
+  workspaces() {
+    const rows = new Map()
+    for (const session of this.index.values()) {
+      const key = session.cwd ?? ''
+      let row = rows.get(key)
+      if (row === undefined) {
+        row = { cwd: session.cwd, sessions: 0, messages: 0 }
+        rows.set(key, row)
+      }
+      row.sessions += 1
+      row.messages += session.entries.length
     }
-    this.titles.set(id, title)
-    return title
+    return [...rows.values()].sort((left, right) => right.messages - left.messages)
   }
 
   /**
    * Search every indexed conversation.
    *
-   * @param {{query: string, sessionId?: string, cwd?: string, limit?: number, snippetRadius?: number}} request - the search request.
+   * The scope is every session of this Harness by default; `workspace` narrows
+   * it to one working directory. Titles are searched beside the messages, so a
+   * session is findable by its name even when none of its words appear in it.
+   *
+   * @param {{query: string, sessionId?: string, workspace?: string, cwd?: string, limit?: number, snippetRadius?: number}} request - the search request.
    * @returns {Promise<any>} the hits, the corpus size, and the query that was run.
    */
   async search(request) {
     const query = typeof request?.query === 'string' ? request.query.trim().slice(0, MAX_QUERY_LENGTH) : ''
-    if (query === '') {
-      return { query: '', hits: [], sessions: 0, messages: 0, truncated: false }
-    }
+    const empty = { query: '', hits: [], sessions: 0, messages: 0, workspaces: [], truncated: false, loose: false }
+    if (query === '') return empty
     await this.refresh()
-    const terms = termsOf(query)
-    if (terms.length === 0) {
-      return { query: '', hits: [], sessions: this.index.size, messages: 0, truncated: false }
-    }
+    const tokens = tokenizeQuery(query)
+    if (tokens.length === 0) return { ...empty, sessions: this.index.size }
     const limit = Number.isInteger(request?.limit) && request.limit > 0 ? Math.min(request.limit, 200) : DEFAULT_MAX_RESULTS
     const radius = Number.isInteger(request?.snippetRadius) && request.snippetRadius > 0 ? request.snippetRadius : DEFAULT_SNIPPET_RADIUS
+    const scope = typeof request?.workspace === 'string' ? request.workspace : undefined
+    const cwd = typeof request?.cwd === 'string' ? request.cwd : undefined
     const hits = []
     let messages = 0
+    let sessionsSearched = 0
     for (const [id, session] of this.index) {
       if (typeof request?.sessionId === 'string' && request.sessionId !== id) continue
-      if (typeof request?.cwd === 'string' && request.cwd !== session.cwd) continue
+      if (scope !== undefined && scope !== 'all' && scope !== session.cwd) continue
+      if (cwd !== undefined && cwd !== session.cwd) continue
+      sessionsSearched += 1
+      const titleHaystack = session.title?.toLowerCase() ?? ''
+      const titleOutcome = titleHaystack === '' ? { matched: false, score: 0 } : matchTokens(tokens, titleHaystack, false)
       for (const entry of session.entries) {
         messages += 1
         const haystack = entry.text.toLowerCase()
-        let index = -1
-        let occurrences = 0
-        let matched = true
-        for (const term of terms) {
-          const at = haystack.indexOf(term)
-          if (at < 0) {
-            matched = false
-            break
-          }
-          if (index < 0 || at < index) index = at
-          let from = 0
-          for (;;) {
-            const found = haystack.indexOf(term, from)
-            if (found < 0) break
-            occurrences += 1
-            from = found + term.length
-          }
-        }
-        if (!matched) continue
+        const outcome = matchTokens(tokens, haystack, true)
+        if (!outcome.matched) continue
         hits.push({
           sessionId: id,
           cwd: session.cwd,
@@ -381,23 +556,80 @@ class SuperSearchIndex {
           seq: entry.seq,
           time: entry.time,
           text: entry.text,
-          snippet: snippetAround(entry.text, index, terms[0].length, radius),
-          occurrences
+          snippet: snippetAround(entry.text, outcome.index, tokens[0].text.length, radius),
+          occurrences: outcome.occurrences,
+          score: outcome.score + (ROLE_SCORE[entry.role] ?? 0) + (titleOutcome.matched ? TITLE_BOOST : 0)
+        })
+      }
+      if (titleOutcome.matched) {
+        hits.push({
+          sessionId: id,
+          cwd: session.cwd,
+          role: 'title',
+          seq: -1,
+          time: session.createdAt,
+          text: session.title ?? '',
+          snippet: session.title ?? '',
+          occurrences: titleOutcome.occurrences,
+          score: titleOutcome.score + (ROLE_SCORE.title ?? 0)
         })
       }
     }
-    hits.sort((left, right) => right.occurrences - left.occurrences || right.time - left.time)
+    let loose = false
+    if (hits.length === 0) {
+      for (const [id, session] of this.index) {
+        if (typeof request?.sessionId === 'string' && request.sessionId !== id) continue
+        if (scope !== undefined && scope !== 'all' && scope !== session.cwd) continue
+        if (cwd !== undefined && cwd !== session.cwd) continue
+        const titleHaystack = session.title?.toLowerCase() ?? ''
+        const titleOutcome = titleHaystack === '' ? { matched: false, score: 0 } : matchTokens(tokens, titleHaystack, false)
+        if (titleOutcome.matched) {
+          hits.push({
+            sessionId: id,
+            cwd: session.cwd,
+            role: 'title',
+            seq: -1,
+            time: session.createdAt,
+            text: session.title ?? '',
+            snippet: session.title ?? '',
+            occurrences: titleOutcome.occurrences,
+            score: titleOutcome.score + (ROLE_SCORE.title ?? 0)
+          })
+        }
+        for (const entry of session.entries) {
+          const haystack = entry.text.toLowerCase()
+          const outcome = matchTokens(tokens, haystack, false)
+          if (!outcome.matched) continue
+          if (!isWorthwhilePartialMatch(tokens, outcome)) continue
+          hits.push({
+            sessionId: id,
+            cwd: session.cwd,
+            role: entry.role,
+            seq: entry.seq,
+            time: entry.time,
+            text: entry.text,
+            snippet: snippetAround(entry.text, outcome.index, tokens[0].text.length, radius),
+            occurrences: outcome.occurrences,
+            score: outcome.score + (ROLE_SCORE[entry.role] ?? 0) - 6
+          })
+        }
+      }
+    }
+    loose = hits.length > 0
+    hits.sort((left, right) => right.score - left.score || right.time - left.time)
     const truncated = hits.length > limit
     const selected = hits.slice(0, limit)
-    for (const hit of selected) {
-      hit.title = await this.titleOf(hit.sessionId)
-    }
+    const workspaces = this.workspaces()
+      .filter((row) => scope === undefined || scope === 'all' || row.cwd === scope)
+      .map((row) => ({ cwd: row.cwd, sessions: row.sessions, messages: row.messages }))
     return {
       query,
       hits: selected,
-      sessions: this.index.size,
+      sessions: sessionsSearched,
       messages,
-      truncated
+      workspaces,
+      truncated,
+      loose
     }
   }
 }
@@ -414,11 +646,13 @@ function renderToolResult(result) {
   }
   const lines = [`${String(result.hits.length)} match(es) for "${result.query}" across ${String(result.sessions)} sessions:`, '']
   for (const hit of result.hits) {
-    const who = hit.role === 'user' ? 'User' : 'Assistant'
+    const who = hit.role === 'user' ? 'User' : hit.role === 'assistant' ? 'Assistant' : 'Title'
+    const where = hit.cwd === undefined ? '' : ` in ${hit.cwd}`
     const when = new Date(hit.time).toISOString()
-    lines.push(`- [${who}] session ${hit.sessionId}${hit.title === undefined ? '' : ` ("${hit.title}")`} at ${when} (seq ${String(hit.seq)})`)
+    lines.push(`- [${who}] session ${hit.sessionId}${where}${hit.role === 'title' ? '' : ` at ${when} (seq ${String(hit.seq)})`}`)
     lines.push(`  ${hit.snippet.replace(/\n/gu, ' ')}`)
   }
+  if (result.loose) lines.push('', 'Only partial matches were found; the exact words do not all appear together.')
   if (result.truncated) lines.push('', 'More matches exist; narrow the query to see them.')
   return lines.join('\n')
 }
@@ -438,22 +672,26 @@ export function apply(ctx, config = {}) {
    * The one operation this plugin owns: search the human-readable part of the
    * conversation history. The tool and the browser entry point both call it.
    *
-   * @param {{query: string, sessionId?: string, cwd?: string, limit?: number}} request - the search request.
+   * @param {{query: string, sessionId?: string, workspace?: string, cwd?: string, limit?: number}} request - the search request.
    * @returns {Promise<any>} the search result.
    */
   const search = async (request) => index.search({ ...request, limit: request?.limit ?? maxResults })
 
-  ctx.provide('superSearch', { search })
+  ctx.provide('superSearch', { search, workspaces: () => index.workspaces() })
 
   ctx.tools.register({
     name: 'super_search',
-    description: 'Search the text of earlier conversations in this workspace. Only what a person typed and what the assistant answered are searched; reasoning, tool calls, and tool output are excluded.',
+    description: 'Search the text of earlier conversations. Only what a person typed and what the assistant answered are searched, together with the conversation title; reasoning, tool calls, and tool output are excluded. Searches every session, and can be narrowed to one working directory.',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description: 'Literal text to look for. Matching is case-insensitive and works inside words and Chinese phrases.'
+        },
+        workspace: {
+          type: 'string',
+          description: 'Working directory to narrow the search to, for example "/Users/me/project". Use "all" to search every workspace of this Harness; the caller\'s own workspace is used when this is omitted.'
         }
       },
       required: ['query'],
@@ -466,8 +704,10 @@ export function apply(ctx, config = {}) {
     execute: async (args, exec) => {
       const query = typeof args?.query === 'string' ? args.query.trim() : ''
       if (query === '') throw new Error('super_search: query must not be empty')
+      const requested = typeof args?.workspace === 'string' ? args.workspace.trim() : ''
       const cwd = exec?.agent?.session?.header?.cwd
-      const result = await search({ query, cwd: typeof cwd === 'string' ? cwd : undefined })
+      const workspace = requested === '' ? (typeof cwd === 'string' ? cwd : 'all') : requested
+      const result = await search({ query, workspace })
       return renderToolResult(result)
     }
   })
@@ -489,7 +729,7 @@ export function apply(ctx, config = {}) {
           const result = await search({
             query: url.searchParams.get('q') ?? '',
             sessionId: url.searchParams.get('sessionId') ?? undefined,
-            cwd: url.searchParams.get('cwd') ?? undefined,
+            workspace: url.searchParams.get('workspace') ?? undefined,
             limit: Number.isInteger(limit) && limit > 0 ? limit : undefined
           })
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -500,8 +740,32 @@ export function apply(ctx, config = {}) {
         }
       }
     }), 'dsh-super-search: search route')
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: WORKSPACES_PATH,
+      handler: async (req, res) => {
+        const admission = webCtx.connection.admit(req)
+        if ('rejection' in admission) {
+          res.writeHead(admission.rejection, { 'content-type': 'text/plain; charset=utf-8' })
+          res.end(admission.rejection === 401 ? 'unauthorized' : 'forbidden')
+          return
+        }
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+        res.end(JSON.stringify({ workspaces: index.workspaces() }))
+      }
+    }), 'dsh-super-search: workspaces route')
   })
 }
 
 /** The pure text helpers, exported so a test can exercise them against real logs. */
-export { SuperSearchIndex, extractPlainText, entryOfEvent, entriesOfEvents, termsOf, snippetAround }
+export {
+  SuperSearchIndex,
+  extractPlainText,
+  entryOfEvent,
+  entriesOfEvents,
+  entriesAndTitleOfEvents,
+  tokenizeQuery,
+  matchToken,
+  matchTokens,
+  snippetAround
+}

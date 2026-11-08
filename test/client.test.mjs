@@ -123,5 +123,53 @@ check(reopened.portal.children[0].props.key === secondOpen, 'the reopened body h
 overlayProps.onOpenSession('session-1')
 check(record.opened === 'session-1', 'a hit opens its session')
 
+// --- the workspace scope bar ----------------------------------------------
+
+/** Collect every string a rendered tree carries. */
+function textsOf(node, into = []) {
+  if (node === null || node === undefined) return into
+  if (typeof node === 'string') {
+    into.push(node)
+    return into
+  }
+  if (Array.isArray(node)) {
+    for (const child of node) textsOf(child, into)
+    return into
+  }
+  if (typeof node === 'object' && node.children !== undefined) {
+    textsOf(node.children, into)
+    return into
+  }
+  return into
+}
+
+/** Find every element with a given type name in a rendered tree. */
+function elementsOf(node, name, into = []) {
+  if (node === null || node === undefined) return into
+  if (Array.isArray(node)) {
+    for (const child of node) elementsOf(child, name, into)
+    return into
+  }
+  if (typeof node !== 'object') return into
+  if (typeof node.type === 'string' && node.type === name) into.push(node)
+  if (node.children !== undefined) elementsOf(node.children, name, into)
+  return into
+}
+
+const palette = body.type(body.props)
+const buttons = elementsOf(palette, 'button')
+const labels = textsOf(palette)
+check(buttons.length > 0, 'the palette renders buttons')
+check(labels.includes('allWorkspaces'), 'the scope bar offers every workspace')
+check(labels.includes('scope'), 'the palette states what it searches')
+check(textsOf(palette).some((text) => text.includes('hint')), 'the palette shows its key hints')
+
+// the close button and the scope button both live in the card
+const close = buttons.find((button) => button.props['aria-label'] === 'open')
+check(close !== undefined, 'the card carries a close control')
+
+console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${String(failures)} CHECK(S) FAILED`}`)
+process.exit(failures === 0 ? 0 : 1)
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${String(failures)} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
