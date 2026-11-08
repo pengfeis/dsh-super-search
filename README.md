@@ -88,13 +88,13 @@ From this repository, either paste the URL in that dialog or use a package spec:
 
 ```bash
 # agent tool
-plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.1.0
+plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.1.1
 
 # CLI
 dsh plugin --profile <profile> add git+https://github.com/pengfeis/dsh-super-search.git
 ```
 
-The `v1.1.0` release also carries `dsh-super-search-1.1.0.tgz` and its sha256 for
+The `v1.1.1` release also carries `dsh-super-search-1.1.1.tgz` and its sha256 for
 offline installs.
 
 ### Tests
@@ -175,13 +175,13 @@ A session log lives under `$DSH_HOME/sessions/<workspace>/<session-id>/` as
 
 ```bash
 # 智能体
-plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.1.0
+plugin_manager install_bundle target=git+https://github.com/pengfeis/dsh-super-search.git#v1.1.1
 
 # 命令行
 dsh plugin --profile <profile> add git+https://github.com/pengfeis/dsh-super-search.git
 ```
 
-`v1.1.0` Release 还附带 `dsh-super-search-1.1.0.tgz` 及其 sha256，便于离线安装。
+`v1.1.1` Release 还附带 `dsh-super-search-1.1.1.tgz` 及其 sha256，便于离线安装。
 
 ### 测试
 

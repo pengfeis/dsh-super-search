@@ -1,6 +1,6 @@
 {
   "name": "dsh-super-search",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Global search over DeepSeek Harness conversations: user questions and assistant answers only, never reasoning, tool calls, or tool output.",
   "license": "MIT",
   "type": "module",

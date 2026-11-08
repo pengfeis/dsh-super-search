@@ -191,6 +191,27 @@ function tokenizeQuery(query) {
 }
 
 /**
+ * Release one session observation.
+ *
+ * The observation lease exposes the disposable symbol, not a named method, so
+ * releasing it the wrong way would leak the lease and — because the caller
+ * reads inside a try/finally — silently drop every stored session from the
+ * index. Both spellings are accepted so a future shape cannot regress it.
+ *
+ * @param {any} observation - the lease returned by `observeSession`.
+ * @returns {void} nothing.
+ */
+function releaseObservation(observation) {
+  const symbolic = observation?.[Symbol.dispose]
+  if (typeof symbolic === 'function') {
+    symbolic.call(observation)
+    return
+  }
+  const named = observation?.dispose
+  if (typeof named === 'function') named.call(observation)
+}
+
+/**
  * Cut the text around the first match.
  *
  * @param {string} text - the matched message text.
@@ -388,7 +409,7 @@ class SuperSearchIndex {
     try {
       return entriesAndTitleOfEvents(observation.events)
     } finally {
-      observation.dispose()
+      releaseObservation(observation)
     }
   }
 
@@ -673,6 +694,7 @@ function renderToolResult(result) {
  */
 export function apply(ctx, config = {}) {
   const index = new SuperSearchIndex(ctx)
+
   const maxResults = Number.isInteger(config.maxResults) && config.maxResults > 0 ? config.maxResults : DEFAULT_MAX_RESULTS
 
   /**

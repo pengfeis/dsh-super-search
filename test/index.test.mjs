@@ -42,6 +42,7 @@ const logs = parsed.filter((log) => {
 
 const warn = []
 let observeCalls = 0
+let releasedObservations = 0
 /** Cold sessions stay out of the live store and are reached through persistence. */
 const cold = new Set(logs.slice(0, 2).map((log) => log.header.id))
 const ctx = {
@@ -66,7 +67,13 @@ const ctx = {
       observeCalls += 1
       const log = logs.find((candidate) => candidate.header.id === id)
       if (log === undefined) throw new Error(`unknown session ${id}`)
-      return { events: log.events, dispose: () => {} }
+      // The real lease exposes the disposable symbol, not a named method.
+      return {
+        events: log.events,
+        [Symbol.dispose]: () => {
+          releasedObservations += 1
+        }
+      }
     },
     readTitle: async () => undefined
   }
@@ -180,6 +187,10 @@ check(empty.hits.length === 0 && empty.query === '', 'an empty query returns not
 const before = observeCalls
 await index.search({ query: '插件' })
 check(observeCalls === before, 'an unchanged corpus re-reads no cold session')
+check(
+  releasedObservations === observeCalls,
+  'every session observation was released through Symbol.dispose'
+)
 check(warn.length === 0, 'no session failed to index')
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${String(failures)} CHECK(S) FAILED`}`)
